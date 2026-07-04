@@ -12,7 +12,7 @@ export default function WelcomeScreen({ navigation }) {
       <TouchableOpacity
         style={styles.button}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate("Services")}
+      onPress={() => navigation.navigate("Login")}
       >
         <Text style={styles.buttonText}>সেবা নিতে চাই</Text>
       </TouchableOpacity>

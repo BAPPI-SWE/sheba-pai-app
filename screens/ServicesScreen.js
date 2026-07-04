@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { API_URL } from "../config";
 import {
   StyleSheet,
   Text,
@@ -8,8 +9,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 
-// ⚠️ Your computer's current IP
-const API_URL = "http://192.168.1.5:3000";
+// // ⚠️ Your computer's current IP
+// const API_URL = "http://192.168.1.5:3000";
 
 export default function ServicesScreen({ navigation }) {
   const [services, setServices] = useState([]);
