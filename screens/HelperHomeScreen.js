@@ -4,17 +4,16 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import { apiFetch } from "../api";
+import { socket } from "../socket";
 
 export default function HelperHomeScreen({ navigation }) {
   const [online, setOnline] = useState(false);
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Toggle online/offline — sends location + availability to backend
   async function toggleOnline(value) {
     try {
       if (value) {
-        // Going online: need location permission
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") {
           Alert.alert("অনুমতি প্রয়োজন", "অনলাইন হতে লোকেশন অনুমতি দিন");
@@ -33,9 +32,8 @@ export default function HelperHomeScreen({ navigation }) {
           return;
         }
         setOnline(true);
-        loadRequests();
+        loadRequests(); // load any requests that already exist nearby
       } else {
-        // Going offline
         const pos = await Location.getCurrentPositionAsync({});
         await apiFetch("/api/helper/location", {
           method: "PATCH",
@@ -53,43 +51,44 @@ export default function HelperHomeScreen({ navigation }) {
     }
   }
 
-  // Load pending requests near the helper
-async function loadRequests() {
+  async function loadRequests() {
     setLoading(true);
-    console.log("HELPER polling for requests...");
     try {
       const res = await apiFetch("/api/helper/requests");
       const data = await res.json();
-      console.log("HELPER got requests:", JSON.stringify(data));
       if (res.ok) setRequests(data);
     } catch (err) {
-      console.log("HELPER request error:", err.message);
+      // ignore
     } finally {
       setLoading(false);
     }
   }
 
-  // While online, refresh the request list every 5 seconds
+  // Listen for pushed new requests while online
   useEffect(() => {
-    if (!online) return;
-    const interval = setInterval(loadRequests, 5000);
-    return () => clearInterval(interval);
-  }, [online]);
+    function handleNewRequest(request) {
+      // Add it to the top, avoiding duplicates
+      setRequests((prev) => {
+        if (prev.find((r) => r._id === request._id)) return prev;
+        return [request, ...prev];
+      });
+    }
 
-  // Accept a request
+    socket.on("newRequest", handleNewRequest);
+    return () => socket.off("newRequest", handleNewRequest); // cleanup
+  }, []);
+
   async function acceptRequest(requestId) {
     try {
-      const res = await apiFetch(`/api/requests/${requestId}/accept`, {
-        method: "PATCH",
-      });
+      const res = await apiFetch(`/api/requests/${requestId}/accept`, { method: "PATCH" });
       const data = await res.json();
       if (!res.ok) {
         Alert.alert("দুঃখিত", data.error || "অনুরোধটি আর নেই");
-        loadRequests();
+        setRequests((prev) => prev.filter((r) => r._id !== requestId));
         return;
       }
       Alert.alert("গৃহীত", "আপনি অনুরোধটি গ্রহণ করেছেন");
-      loadRequests();
+      setRequests((prev) => prev.filter((r) => r._id !== requestId));
     } catch (err) {
       Alert.alert("ত্রুটি", err.message);
     }
@@ -98,19 +97,11 @@ async function loadRequests() {
   return (
     <View style={styles.container}>
       <View style={styles.statusRow}>
-        <Text style={styles.statusLabel}>
-          {online ? "আপনি অনলাইন" : "আপনি অফলাইন"}
-        </Text>
-        <Switch
-          value={online}
-          onValueChange={toggleOnline}
-          trackColor={{ true: "#0F766E" }}
-        />
+        <Text style={styles.statusLabel}>{online ? "আপনি অনলাইন" : "আপনি অফলাইন"}</Text>
+        <Switch value={online} onValueChange={toggleOnline} trackColor={{ true: "#0F766E" }} />
       </View>
 
-      {!online && (
-        <Text style={styles.hint}>অনুরোধ পেতে অনলাইন হন</Text>
-      )}
+      {!online && <Text style={styles.hint}>অনুরোধ পেতে অনলাইন হন</Text>}
 
       {online && (
         <>
@@ -128,10 +119,7 @@ async function loadRequests() {
               <View style={styles.card}>
                 <Text style={styles.cardRole}>{item.role}</Text>
                 <Text style={styles.cardStatus}>অপেক্ষমাণ</Text>
-                <TouchableOpacity
-                  style={styles.acceptBtn}
-                  onPress={() => acceptRequest(item._id)}
-                >
+                <TouchableOpacity style={styles.acceptBtn} onPress={() => acceptRequest(item._id)}>
                   <Text style={styles.acceptText}>গ্রহণ করুন</Text>
                 </TouchableOpacity>
               </View>
@@ -158,8 +146,6 @@ const styles = StyleSheet.create({
   },
   cardRole: { fontSize: 22, fontWeight: "600", color: "#0F766E" },
   cardStatus: { fontSize: 14, color: "#64748B", marginTop: 4 },
-  acceptBtn: {
-    backgroundColor: "#0F766E", padding: 14, borderRadius: 10, alignItems: "center", marginTop: 14,
-  },
+  acceptBtn: { backgroundColor: "#0F766E", padding: 14, borderRadius: 10, alignItems: "center", marginTop: 14 },
   acceptText: { color: "#fff", fontSize: 18, fontWeight: "600" },
 });

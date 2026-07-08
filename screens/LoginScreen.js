@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { connectSocket } from "../socket";
 import {
   StyleSheet, Text, View, TextInput, TouchableOpacity, ActivityIndicator, Alert,
 } from "react-native";
@@ -33,7 +34,10 @@ export default function LoginScreen({ navigation }) {
       await AsyncStorage.setItem("token", data.token);
       await AsyncStorage.setItem("user", JSON.stringify(data.user));
 
-        // Route based on role
+      // Connect real-time socket and join our personal room
+      connectSocket(data.user.id);
+
+      // Route based on role
       if (data.user.role === "helper") {
         navigation.replace("HelperHome");
       } else {
