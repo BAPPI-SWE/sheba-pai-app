@@ -6,9 +6,23 @@ import * as Location from "expo-location";
 import { apiFetch } from "../api";
 import { socket } from "../socket";
 
-export default function HelperHomeScreen({ navigation }) {
+// Maps current status -> { label for the button, the next status }
+const NEXT_STEP = {
+  accepted: { label: "রওনা হয়েছি", next: "on_the_way" },
+  on_the_way: { label: "পৌঁছেছি, সেবা শুরু", next: "helping" },
+  helping: { label: "সেবা সম্পন্ন", next: "completed" },
+};
+
+const STATUS_LABEL = {
+  accepted: "গৃহীত",
+  on_the_way: "রোগীর দিকে যাচ্ছি",
+  helping: "সেবা চলছে",
+};
+
+export default function HelperHomeScreen() {
   const [online, setOnline] = useState(false);
   const [requests, setRequests] = useState([]);
+  const [activeJob, setActiveJob] = useState(null); // the request she's handling
   const [loading, setLoading] = useState(false);
 
   async function toggleOnline(value) {
@@ -20,11 +34,13 @@ export default function HelperHomeScreen({ navigation }) {
           return;
         }
         const pos = await Location.getCurrentPositionAsync({});
-        const { longitude, latitude } = pos.coords;
-
         const res = await apiFetch("/api/helper/location", {
           method: "PATCH",
-          body: JSON.stringify({ longitude, latitude, isAvailable: true }),
+          body: JSON.stringify({
+            longitude: pos.coords.longitude,
+            latitude: pos.coords.latitude,
+            isAvailable: true,
+          }),
         });
         if (!res.ok) {
           const d = await res.json();
@@ -32,7 +48,7 @@ export default function HelperHomeScreen({ navigation }) {
           return;
         }
         setOnline(true);
-        loadRequests(); // load any requests that already exist nearby
+        loadRequests();
       } else {
         const pos = await Location.getCurrentPositionAsync({});
         await apiFetch("/api/helper/location", {
@@ -64,36 +80,80 @@ export default function HelperHomeScreen({ navigation }) {
     }
   }
 
-  // Listen for pushed new requests while online
   useEffect(() => {
     function handleNewRequest(request) {
-      // Add it to the top, avoiding duplicates
       setRequests((prev) => {
         if (prev.find((r) => r._id === request._id)) return prev;
         return [request, ...prev];
       });
     }
-
     socket.on("newRequest", handleNewRequest);
-    return () => socket.off("newRequest", handleNewRequest); // cleanup
+    return () => socket.off("newRequest", handleNewRequest);
   }, []);
 
-  async function acceptRequest(requestId) {
+  async function acceptRequest(request) {
     try {
-      const res = await apiFetch(`/api/requests/${requestId}/accept`, { method: "PATCH" });
+      const res = await apiFetch(`/api/requests/${request._id}/accept`, { method: "PATCH" });
       const data = await res.json();
       if (!res.ok) {
         Alert.alert("দুঃখিত", data.error || "অনুরোধটি আর নেই");
-        setRequests((prev) => prev.filter((r) => r._id !== requestId));
+        setRequests((prev) => prev.filter((r) => r._id !== request._id));
         return;
       }
-      Alert.alert("গৃহীত", "আপনি অনুরোধটি গ্রহণ করেছেন");
-      setRequests((prev) => prev.filter((r) => r._id !== requestId));
+      // Move into active-job mode
+      setActiveJob(data);
+      setRequests([]); // clear the list while handling one job
     } catch (err) {
       Alert.alert("ত্রুটি", err.message);
     }
   }
 
+  // Advance the active job to its next state
+  async function advanceJob() {
+    const step = NEXT_STEP[activeJob.status];
+    if (!step) return;
+    try {
+      const res = await apiFetch(`/api/requests/${activeJob._id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ nextStatus: step.next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        Alert.alert("ব্যর্থ", data.error || "পরিবর্তন ব্যর্থ");
+        return;
+      }
+      if (data.status === "completed") {
+        Alert.alert("সম্পন্ন", "সেবা সম্পন্ন হয়েছে");
+        setActiveJob(null); // job done, back to receiving requests
+        loadRequests();
+      } else {
+        setActiveJob(data);
+      }
+    } catch (err) {
+      Alert.alert("ত্রুটি", err.message);
+    }
+  }
+
+  // --- ACTIVE JOB VIEW ---
+  if (activeJob) {
+    const step = NEXT_STEP[activeJob.status];
+    return (
+      <View style={styles.container}>
+        <Text style={styles.heading}>চলমান কাজ</Text>
+        <View style={styles.jobCard}>
+          <Text style={styles.cardRole}>{activeJob.role}</Text>
+          <Text style={styles.jobStatus}>{STATUS_LABEL[activeJob.status]}</Text>
+        </View>
+        {step && (
+          <TouchableOpacity style={styles.bigBtn} onPress={advanceJob}>
+            <Text style={styles.bigBtnText}>{step.label}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  // --- NORMAL (online/offline + request list) VIEW ---
   return (
     <View style={styles.container}>
       <View style={styles.statusRow}>
@@ -119,7 +179,7 @@ export default function HelperHomeScreen({ navigation }) {
               <View style={styles.card}>
                 <Text style={styles.cardRole}>{item.role}</Text>
                 <Text style={styles.cardStatus}>অপেক্ষমাণ</Text>
-                <TouchableOpacity style={styles.acceptBtn} onPress={() => acceptRequest(item._id)}>
+                <TouchableOpacity style={styles.acceptBtn} onPress={() => acceptRequest(item)}>
                   <Text style={styles.acceptText}>গ্রহণ করুন</Text>
                 </TouchableOpacity>
               </View>
@@ -148,4 +208,11 @@ const styles = StyleSheet.create({
   cardStatus: { fontSize: 14, color: "#64748B", marginTop: 4 },
   acceptBtn: { backgroundColor: "#0F766E", padding: 14, borderRadius: 10, alignItems: "center", marginTop: 14 },
   acceptText: { color: "#fff", fontSize: 18, fontWeight: "600" },
+  jobCard: {
+    backgroundColor: "#fff", padding: 24, borderRadius: 14, borderWidth: 1, borderColor: "#E2E8F0",
+    marginBottom: 30,
+  },
+  jobStatus: { fontSize: 18, color: "#475569", marginTop: 8 },
+  bigBtn: { backgroundColor: "#0F766E", padding: 20, borderRadius: 14, alignItems: "center" },
+  bigBtnText: { color: "#fff", fontSize: 22, fontWeight: "700" },
 });
