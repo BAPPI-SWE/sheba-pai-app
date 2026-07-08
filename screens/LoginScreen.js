@@ -33,8 +33,12 @@ export default function LoginScreen({ navigation }) {
       await AsyncStorage.setItem("token", data.token);
       await AsyncStorage.setItem("user", JSON.stringify(data.user));
 
-      // Go to Services, replacing Login so back button won't return here
-      navigation.replace("Services");
+        // Route based on role
+      if (data.user.role === "helper") {
+        navigation.replace("HelperHome");
+      } else {
+        navigation.replace("Services");
+      }
     } catch (err) {
       Alert.alert("ত্রুটি", "সংযোগ ব্যর্থ হয়েছে");
     } finally {

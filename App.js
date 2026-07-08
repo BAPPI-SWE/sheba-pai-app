@@ -6,6 +6,7 @@ import LoginScreen from "./screens/LoginScreen";
 import SignupScreen from "./screens/SignupScreen";
 import ServicesScreen from "./screens/ServicesScreen";
 import SearchingScreen from "./screens/SearchingScreen";
+import HelperHomeScreen from "./screens/HelperHomeScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -18,6 +19,7 @@ export default function App() {
         <Stack.Screen name="Signup" component={SignupScreen} options={{ title: "সাইনআপ" }} />
         <Stack.Screen name="Services" component={ServicesScreen} options={{ title: "সেবা নির্বাচন" }} />
         <Stack.Screen name="Searching" component={SearchingScreen} options={{ title: "অনুরোধ" }} />
+        <Stack.Screen name="HelperHome" component={HelperHomeScreen} options={{ title: "সাহায্যকারী", headerBackVisible: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
